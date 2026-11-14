@@ -227,3 +227,75 @@ function ns.CompareQuests(key)
 	table.sort(mine, byLevel)
 	return theirs, mine
 end
+
+---------------------------------------------------------------------------
+-- Quest givers: what an NPC has for a buddy (QuestieDB only)
+---------------------------------------------------------------------------
+
+local setCache = {}
+local function PeerSets(key)
+	local peer = ns.db.peers[key]
+	local cached = setCache[key]
+	if cached and cached.hash == peer.hash then return cached.log, cached.done end
+	local log = {}
+	for _, q in ipairs(peer.snap.log or {}) do log[q[1]] = q end
+	cached = { hash = peer.hash, log = log, done = Set(peer.snap.completed) }
+	setCache[key] = cached
+	return cached.log, cached.done
+end
+
+local function AllDone(list, done)
+	if type(list) ~= "table" then return true end
+	for _, id in ipairs(list) do
+		if type(id) == "number" and id > 0 and not done[id] then return false end
+	end
+	return true
+end
+
+local function AnyDone(list, done)
+	if type(list) ~= "table" or #list == 0 then return true end
+	for _, id in ipairs(list) do
+		if type(id) == "number" and done[id] then return true end
+	end
+	return false
+end
+
+local function NoneDone(list, done, log)
+	if type(list) ~= "table" then return true end
+	for _, id in ipairs(list) do
+		if type(id) == "number" and (done[id] or log[id]) then return false end
+	end
+	return true
+end
+
+-- Quests an NPC has for a buddy: { needs = { details... }, turnIn = { details... } }, or nil
+function ns.NpcQuestsFor(npcID, key)
+	local peer = ns.db.peers[key]
+	local snap = peer and peer.snap
+	if not snap or not snap.hasQuests or not LibQuestieDB then return nil end
+	local lib = LibQuestieDB
+	if type(lib.Npc) ~= "table" or type(lib.Npc.Get) ~= "function" then return nil end
+	local okS, starts = pcall(lib.Npc.Get, npcID, "questStarts")
+	local okE, ends = pcall(lib.Npc.Get, npcID, "questEnds")
+	starts = okS and type(starts) == "table" and starts or {}
+	ends = okE and type(ends) == "table" and ends or {}
+	if #starts == 0 and #ends == 0 then return nil end
+	local log, done = PeerSets(key)
+	local needs, turnIn = {}, {}
+	for _, id in ipairs(starts) do
+		if type(id) == "number" and not done[id] and not log[id] and CanTake(id, snap)
+			and AllDone(QuestField(id, "preQuestGroup"), done) and AnyDone(QuestField(id, "preQuestSingle"), done)
+			and NoneDone(QuestField(id, "exclusiveTo"), done, log) then
+			local details = ns.QuestDetails(id)
+			details.tooLow = details.minLevel and details.minLevel > (snap.level or 0)
+			table.insert(needs, details)
+		end
+	end
+	for _, id in ipairs(ends) do
+		local q = type(id) == "number" and log[id]
+		if q and q[3] then table.insert(turnIn, ns.QuestDetails(id, q[4], q[2])) end
+	end
+	if #needs == 0 and #turnIn == 0 then return nil end
+	table.sort(needs, function(a, b) return (a.level or 0) < (b.level or 0) end)
+	return { needs = needs, turnIn = turnIn }
+end

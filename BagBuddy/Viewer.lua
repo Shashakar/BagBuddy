@@ -2,7 +2,7 @@
 -- would be upgrades for them.
 local _, ns = ...
 
-local WIDTH, HEIGHT = 520, 600
+local WIDTH, HEIGHT = 560, 620
 local SIZE, GAP, PER_ROW = 34, 4, 11
 
 local SLOT_NAMES = { "Head", "Neck", "Shoulder", "Shirt", "Chest", "Waist", "Legs", "Feet", "Wrist", "Hands",
@@ -10,7 +10,7 @@ local SLOT_NAMES = { "Head", "Neck", "Shoulder", "Shirt", "Chest", "Waist", "Leg
 local SLOT_ORDER = { 1, 2, 3, 15, 5, 9, 10, 6, 7, 8, 11, 12, 13, 14, 16, 17, 18, 4, 19 }
 
 local frame, scroll, content, title, info, search, modeButtons, emptyText
-local peerButtons, itemButtons, rows, labels = {}, {}, {}, {}
+local peerButtons, itemButtons, rows, labels, recipeRows = {}, {}, {}, {}, {}
 local selected, mode = nil, "theirs"
 
 ---------------------------------------------------------------------------
@@ -66,6 +66,10 @@ local function ItemButton(i)
 		if self.item then
 			GameTooltip:SetHyperlink(self.item)
 			if self.bound then GameTooltip:AddLine("|cffff8080Soulbound to " .. (self.boundTo or "them") .. "|r") end
+			if self.wear then
+				local color = self.wear == 0 and "|cffff2020" or (self.wear < 25 and "|cffff8c00" or "|cffffffff")
+				GameTooltip:AddLine(("Their durability: %s%d%%|r"):format(color, self.wear))
+			end
 		elseif self.slotName then
 			GameTooltip:SetText(self.slotName)
 			GameTooltip:AddLine("Empty", 0.6, 0.6, 0.6)
@@ -104,6 +108,12 @@ local function ShowItem(button, item, count, opts)
 	end
 	if item then button.icon:SetDesaturated(false) end
 	button:SetSize(opts.size or SIZE, opts.size or SIZE)
+	button.wear = opts.wear
+	if opts.wear and opts.wear < 25 then
+		-- Broken or nearly: red or orange, like the game's armor figure
+		if opts.wear == 0 then button.border:SetVertexColor(1, 0.1, 0.1, 1) else button.border:SetVertexColor(1, 0.55, 0, 1) end
+		button.border:Show()
+	end
 	button.count:SetText(count and count > 1 and count or "")
 	button.arrow:SetShown(opts.upgrade and true or false)
 	button:SetAlpha(opts.dim and 0.25 or 1)
@@ -159,6 +169,7 @@ end
 ---------------------------------------------------------------------------
 
 local function HideAll()
+	for _, r in ipairs(recipeRows) do r:Hide() end
 	if content.bagPanel then content.bagPanel:Hide() end
 	for _, b in ipairs(itemButtons) do b:Hide() end
 	for _, r in ipairs(rows) do r:Hide() end
@@ -237,8 +248,9 @@ local function DrawTheirs(key)
 		button:ClearAllPoints()
 		button:SetPoint("TOPLEFT", x, y)
 		local item = snap.equip[slot]
+		local wear = item and snap.dura and snap.dura[slot]
 		ShowItem(button, item, 1, { slotName = SLOT_NAMES[slot], emptyTexture = SlotTexture(slotName),
-			dim = item and not Matches(item) })
+			dim = item and not Matches(item), wear = wear })
 	end
 	local cx = SIZE + 20
 	local y = -24
@@ -253,8 +265,44 @@ local function DrawTheirs(key)
 	y = NextLabel(("Bag space |cffffffff%d of %d free|r"):format(snap.free or 0, snap.total or 0), y, cx, "GameFontNormalSmall")
 	y = NextLabel("|cff999999Updated " .. ns.Ago(ns.db.peers[key].time) .. "|r", y, cx, "GameFontHighlightSmall")
 
+	-- Gear checkup: what needs fixing, in a few words
+	y = y - 10
+	local function Wrapped(text)
+		local _, l = NextLabel(text, y, cx, "GameFontHighlightSmall")
+		l:SetWidth(width - 2 * cx)
+		y = y - math.max(14, l:GetStringHeight() + 4)
+	end
+	local issues = 0
+	if snap.dura then
+		local broken, low = {}, {}
+		for _, place in ipairs(PAPERDOLL) do
+			local pct = snap.dura[place[1]]
+			if pct == 0 then table.insert(broken, SLOT_NAMES[place[1]])
+			elseif pct and pct < 25 then table.insert(low, ("%s %d%%"):format(SLOT_NAMES[place[1]], pct)) end
+		end
+		if #broken > 0 then Wrapped("|cffff2020Broken:|r " .. table.concat(broken, ", ")); issues = issues + 1 end
+		if #low > 0 then Wrapped("|cffff8c00Needs repair:|r " .. table.concat(low, ", ")); issues = issues + 1 end
+		local empty = {}
+		for _, place in ipairs(PAPERDOLL) do
+			local slot = place[1]
+			if slot ~= 4 and slot ~= 19 and not snap.equip[slot] then
+				if not (slot == 17 and snap.equip[16] and ns.ItemInfo(snap.equip[16])
+					and ns.ItemInfo(snap.equip[16]).equipLoc == "INVTYPE_2HWEAPON") then
+					table.insert(empty, SLOT_NAMES[slot])
+				end
+			end
+		end
+		if #empty > 0 then Wrapped("|cffffd100Empty:|r " .. table.concat(empty, ", ")); issues = issues + 1 end
+		if (snap.unspent or 0) > 0 then
+			Wrapped(("|cffffd100%d unspent talent point%s|r"):format(snap.unspent, snap.unspent == 1 and "" or "s"))
+			issues = issues + 1
+		end
+		if issues == 0 then Wrapped("|cff20ff20Gear checkup: all good|r") end
+	end
+	local centerBottom = y
+
 	-- Each bag with its slots, empty ones too, on a panel of their own
-	y = -4 - 9 * step - 16
+	y = math.min(-4 - 9 * step - 16, centerBottom - 12)
 	local panelTop = y + 8
 	local containers = snap.containers
 	if not containers then
@@ -417,6 +465,125 @@ local function DrawQuests(key)
 	content:SetHeight(-y + 10)
 end
 
+---------------------------------------------------------------------------
+-- Professions
+---------------------------------------------------------------------------
+
+local function ItemName(id)
+	local name = C_Item.GetItemNameByID and C_Item.GetItemNameByID(id)
+	if not name and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, id) end
+	return name or ("item " .. id)
+end
+
+local function RecipeRow(i)
+	local row = recipeRows[i]
+	if row then return row end
+	row = CreateFrame("Button", nil, content)
+	row:SetFrameLevel(content:GetFrameLevel() + 3)
+	row:SetHeight(16)
+	row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+	row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	row.name:SetPoint("LEFT", 4, 0)
+	row.name:SetJustifyH("LEFT")
+	row.status = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	row.status:SetPoint("RIGHT", -4, 0)
+	row.status:SetJustifyH("RIGHT")
+	row.name:SetPoint("RIGHT", row.status, "LEFT", -8, 0)
+	row:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		local r = self.recipe
+		if r.out then GameTooltip:SetHyperlink("item:" .. r.out) else GameTooltip:SetText(r.name) end
+		GameTooltip:AddLine(" ")
+		GameTooltip:AddLine("Reagents in " .. (self.who or "their") .. " bags:")
+		for _, reagent in ipairs(r.reagents) do
+			local have = self.counts[reagent[1]] or 0
+			local color = have >= reagent[2] and "|cff20ff20" or "|cffff4040"
+			GameTooltip:AddDoubleLine(ItemName(reagent[1]), ("%s%d / %d|r"):format(color, have, reagent[2]), 1, 1, 1)
+		end
+		GameTooltip:Show()
+	end)
+	row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	recipeRows[i] = row
+	return row
+end
+
+local GATHERING = { Herbalism = true, Skinning = true, Fishing = true }
+
+local function DrawProfessions(key)
+	local peer = ns.db.peers[key]
+	local snap = peer.snap
+	local name = ns.Short(key)
+	local width = content:GetWidth()
+	local counts = ns.ItemCounts(snap)
+	local text = search and search:GetText() or ""
+	local n, nRow = 0, 0
+	local function Line(t, y, x, font)
+		n = n + 1
+		return (Label(n, t, y, x, font))
+	end
+	local y = -4
+	local recipes = peer.recipes or {}
+	local order, seen = {}, {}
+	for _, skill in ipairs(snap.skills or {}) do
+		table.insert(order, { skill[1], skill[2], skill[3] })
+		seen[skill[1]] = true
+	end
+	for profName in pairs(recipes) do
+		if not seen[profName] then table.insert(order, { profName }) end
+	end
+	if #order == 0 then
+		y = Line(("|cff999999No professions from %s yet. They need BagBuddy 1.3 or newer.|r"):format(name), y)
+	end
+	for _, prof in ipairs(order) do
+		local profName, rank, max = prof[1], prof[2], prof[3]
+		local header = profName
+		if rank then header = ("%s  |cffffffff%d / %d|r"):format(profName, rank, max or 0) end
+		y = Line(header, y, 4, "GameFontNormalLarge") - 2
+		local data = recipes[profName]
+		if data and #data.list > 0 then
+			local list, makeable = {}, 0
+			for _, r in ipairs(data.list) do
+				local times, missing = ns.CanMake(r, counts)
+				if times > 0 then makeable = makeable + 1 end
+				if text == "" or r.name:lower():find(text:lower(), 1, true) then
+					table.insert(list, { r = r, times = times, missing = missing })
+				end
+			end
+			table.sort(list, function(a, b)
+				if (a.r.diff or 3) ~= (b.r.diff or 3) then return (a.r.diff or 3) < (b.r.diff or 3) end
+				return a.r.name < b.r.name
+			end)
+			y = Line(("|cff999999%d recipes, %d %s can make now. Recipes updated %s.|r"):format(#data.list, makeable, name,
+				ns.Ago(data.time)), y, 8, "GameFontHighlightSmall") - 2
+			for _, entry in ipairs(list) do
+				nRow = nRow + 1
+				local row = RecipeRow(nRow)
+				row:ClearAllPoints()
+				row:SetPoint("TOPLEFT", 4, y)
+				row:SetWidth(width - 8)
+				row.recipe, row.counts, row.who = entry.r, counts, name .. "'s"
+				row.name:SetText(ns.RecipeColor(entry.r.diff) .. entry.r.name .. "|r")
+				if entry.times > 0 then
+					row.status:SetText(("|cff20ff20can make %d|r"):format(entry.times))
+				elseif #entry.r.reagents == 0 then
+					row.status:SetText("")
+				else
+					local first = entry.missing[1]
+					local more = #entry.missing > 1 and (" +%d more"):format(#entry.missing - 1) or ""
+					row.status:SetText(("|cff999999needs %d %s%s|r"):format(first[2], ItemName(first[1]), more))
+				end
+				row:Show()
+				y = y - 16
+			end
+		elseif not GATHERING[profName] then
+			y = Line(("|cff999999Recipes show up here once %s opens their %s window.|r"):format(name, profName), y, 8,
+				"GameFontHighlightSmall")
+		end
+		y = y - 10
+	end
+	content:SetHeight(-y + 10)
+end
+
 local function DrawPeers()
 	local list = ns.PeerList()
 	if not selected or not ns.db.peers[selected] or not ns.db.peers[selected].snap then selected = list[1] end
@@ -471,6 +638,8 @@ local function Draw()
 		DrawMine(selected)
 	elseif mode == "quests" then
 		DrawQuests(selected)
+	elseif mode == "professions" then
+		DrawProfessions(selected)
 	else
 		DrawTheirs(selected)
 	end
@@ -517,13 +686,13 @@ local function Create()
 
 	modeButtons = {}
 	local theirs = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-	theirs:SetSize(120, 22)
+	theirs:SetSize(118, 22)
 	theirs:SetPoint("TOPLEFT", 12, -76)
 	theirs:SetText("Their gear & bags")
 	theirs:SetScript("OnClick", function() mode = "theirs"; ns.RefreshViewer(true) end)
 	modeButtons.theirs = theirs
 	local mine = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-	mine:SetSize(150, 22)
+	mine:SetSize(140, 22)
 	mine:SetPoint("LEFT", theirs, "RIGHT", 4, 0)
 	mine:SetText("Upgrades in my bags")
 	mine:SetScript("OnClick", function() mode = "mine"; ns.RefreshViewer(true) end)
@@ -534,9 +703,15 @@ local function Create()
 	quests:SetText("Quests")
 	quests:SetScript("OnClick", function() mode = "quests"; ns.RefreshViewer(true) end)
 	modeButtons.quests = quests
+	local profs = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+	profs:SetSize(90, 22)
+	profs:SetPoint("LEFT", quests, "RIGHT", 4, 0)
+	profs:SetText("Professions")
+	profs:SetScript("OnClick", function() mode = "professions"; ns.RefreshViewer(true) end)
+	modeButtons.professions = profs
 
 	search = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
-	search:SetSize(120, 20)
+	search:SetSize(90, 20)
 	search:SetPoint("TOPRIGHT", -18, -77)
 	search:SetAutoFocus(false)
 	search:SetScript("OnTextChanged", function() ns.RefreshViewer(true) end)

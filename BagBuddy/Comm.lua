@@ -4,6 +4,8 @@
 --                          friends you sync with, whenever your bags or gear change
 --   R                      "send me your bags": the answer to an H whose hash you don't have
 --   D:<hash>:<i>:<n>:<..>  part i of n of a snapshot, by whisper to whoever asked
+--   H:<hash>:<session>:<recipe hash>  (session marks our own messages; recipes travel apart)
+--   Q / F:<hash>:<i>:<n>:<..>  the same as R and D, for recipes
 local _, ns = ...
 
 local PREFIX = "BagBuddy"
@@ -96,6 +98,8 @@ local function Refresh()
 	local text = ns.Encode(snap)
 	local hash = ns.Hash(text)
 	mine.snap = snap
+	local recipes = ns.MyRecipesText()
+	mine.recipes, mine.rhash = recipes, recipes and ns.Hash(recipes) or ""
 	if hash == mine.hash then return false end
 	mine.text, mine.hash = text, hash
 	wipe(announced)
@@ -107,8 +111,7 @@ function ns.MySnapshot()
 	return mine.snap
 end
 
-local function Packed()
-	local text = mine.text
+local function Packed(text)
 	local E = C_EncodingUtil
 	if E and E.CompressString and E.EncodeBase64 and E.DecompressString and E.DecodeBase64
 		and Enum and Enum.CompressionMethod then
@@ -129,12 +132,30 @@ local function SendSnapshot(target)
 	for _, item in ipairs(queue) do
 		if item.target == ns.WhisperName(target) and item.msg:sub(1, 2) == "D:" then return end
 	end
-	local data = Packed()
+	local data = Packed(mine.text)
 	local n = math.ceil(#data / CHUNK)
 	for i = 1, n do
 		Send(("D:%s:%d:%d:%s"):format(mine.hash, i, n, data:sub((i - 1) * CHUNK + 1, i * CHUNK)), "WHISPER", target)
 	end
 	ns.Debug(("sent my bags to %s in %d parts (%d bytes)"):format(ns.Short(target), n, #data))
+end
+
+local function SendRecipes(target)
+	Refresh()
+	if not mine.recipes then return end
+	for _, item in ipairs(queue) do
+		if item.target == ns.WhisperName(target) and item.msg:sub(1, 2) == "F:" then return end
+	end
+	local data = Packed(mine.recipes)
+	local n = math.ceil(#data / CHUNK)
+	for i = 1, n do
+		Send(("F:%s:%d:%d:%s"):format(mine.rhash, i, n, data:sub((i - 1) * CHUNK + 1, i * CHUNK)), "WHISPER", target)
+	end
+	ns.Debug(("sent my recipes to %s in %d parts (%d bytes)"):format(ns.Short(target), n, #data))
+end
+
+local function Hello()
+	return "H:" .. mine.hash .. ":" .. ns.session .. ":" .. (mine.rhash or "")
 end
 
 -- Tell the group and online partners what version of my bags there is
@@ -144,10 +165,10 @@ local function Announce(force)
 	if not mine.hash then return end
 	lastAnnounce = GetTime()
 	local channel = GroupChannel()
-	if channel then Send("H:" .. mine.hash .. ":" .. ns.session, channel) end
+	if channel then Send(Hello(), channel) end
 	for key, peer in pairs(ns.db.peers) do
 		if peer.partner and not InGroup(key) and (force or not announced[key]) and FriendOnline(key) then
-			Send("H:" .. mine.hash .. ":" .. ns.session, "WHISPER", key)
+			Send(Hello(), "WHISPER", key)
 			announced[key] = true
 			greeted[key] = true
 		end
@@ -155,13 +176,18 @@ local function Announce(force)
 end
 
 local announceTimer
-local function AnnounceSoon()
+local function AnnounceSoon(force)
 	if announceTimer then announceTimer:Cancel() end
 	local wait = math.max(QUIET, MIN_ANNOUNCE - (GetTime() - lastAnnounce))
 	announceTimer = C_Timer.NewTimer(wait, function()
 		announceTimer = nil
-		if Refresh() then Announce() end
+		local oldRecipes = mine.rhash
+		if Refresh() or mine.rhash ~= oldRecipes or force == true then Announce(true) end
 	end)
+end
+
+function ns.RecipesChanged()
+	AnnounceSoon(true)
 end
 
 function ns.SyncAll(force)
@@ -210,35 +236,53 @@ local function Store(sender, hash, text)
 	ns.RefreshViewer()
 end
 
-local function OnHello(sender, hash)
+local function StoreRecipes(sender, hash, text)
+	if ns.Hash(text) ~= hash then ns.Debug("recipes from " .. sender .. " didn't add up"); return end
+	local peer = ns.db.peers[sender] or {}
+	ns.db.peers[sender] = peer
+	peer.recipes, peer.rhash = ns.DecodeRecipes(text), hash
+	ns.RefreshViewer()
+end
+
+local function OnHello(sender, hash, rhash)
 	local peer = ns.db.peers[sender]
 	if not peer or peer.hash ~= hash then
 		Send("R", "WHISPER", sender)
 	elseif peer then
 		peer.time = GetServerTime()
 	end
+	if rhash and rhash ~= "" and (not peer or peer.rhash ~= rhash) then
+		Send("Q", "WHISPER", sender)
+	end
 	-- Answer a hello once, so a player who just logged in learns about us too
 	if not greeted[sender] then
 		greeted[sender] = true
 		Refresh()
-		if mine.hash then Send("H:" .. mine.hash .. ":" .. ns.session, "WHISPER", sender) end
+		if mine.hash then Send(Hello(), "WHISPER", sender) end
 	end
 end
 
-local function OnData(sender, hash, i, n, chunk)
-	local box = inbox[sender]
+local function OnData(sender, hash, i, n, chunk, kind)
+	local boxKey = sender .. (kind or "D")
+	local box = inbox[boxKey]
 	if not box or box.hash ~= hash or box.n ~= n then
 		box = { hash = hash, n = n, parts = {}, got = 0 }
-		inbox[sender] = box
+		inbox[boxKey] = box
 	end
 	if not box.parts[i] then
 		box.parts[i] = chunk
 		box.got = box.got + 1
 	end
 	if box.got == n then
-		inbox[sender] = nil
+		inbox[boxKey] = nil
 		local text = Unpack(table.concat(box.parts))
-		if text then Store(sender, hash, text) else ns.Debug("couldn't unpack data from " .. sender) end
+		if not text then
+			ns.Debug("couldn't unpack data from " .. sender)
+		elseif kind == "F" then
+			StoreRecipes(sender, hash, text)
+		else
+			Store(sender, hash, text)
+		end
 	end
 end
 
@@ -248,7 +292,7 @@ ns.On("CHAT_MSG_ADDON", function(prefix, msg, channel, sender)
 	if not sender or ns.SamePlayer(sender, ns.Me()) or ns.IsMe(sender) then return end
 	local kind = msg:sub(1, 1)
 	if kind == "H" then
-		local hash, session = msg:match("^H:(%x+):?(%x*)")
+		local hash, session, rhash = msg:match("^H:(%x+):?(%x*):?(%x*)")
 		if session == ns.session then
 			-- Our own group message, come back to us
 			if ns.db.peers[sender] or not (ns.db.selfNames and ns.db.selfNames[sender:lower()]) then
@@ -257,13 +301,15 @@ ns.On("CHAT_MSG_ADDON", function(prefix, msg, channel, sender)
 			end
 			return
 		end
-		if hash then OnHello(sender, hash) end
+		if hash then OnHello(sender, hash, rhash) end
 	elseif kind == "R" then
 		SendSnapshot(sender)
-	elseif kind == "D" then
-		local hash, i, n, chunk = msg:match("^D:(%x+):(%d+):(%d+):(.*)$")
+	elseif kind == "Q" then
+		SendRecipes(sender)
+	elseif kind == "D" or kind == "F" then
+		local hash, i, n, chunk = msg:match("^[DF]:(%x+):(%d+):(%d+):(.*)$")
 		i, n = tonumber(i), tonumber(n)
-		if hash and i and n and n < 200 and i >= 1 and i <= n then OnData(sender, hash, i, n, chunk) end
+		if hash and i and n and n < 400 and i >= 1 and i <= n then OnData(sender, hash, i, n, chunk, kind) end
 	end
 end)
 
@@ -287,7 +333,7 @@ end)
 
 for _, event in ipairs({ "BAG_UPDATE_DELAYED", "PLAYER_EQUIPMENT_CHANGED", "PLAYER_LEVEL_UP",
 	"PLAYER_MONEY", "TRAIT_CONFIG_UPDATED", "PLAYER_TALENT_UPDATE", "QUEST_ACCEPTED", "QUEST_TURNED_IN",
-	"QUEST_REMOVED", "QUEST_LOG_UPDATE" }) do
+	"QUEST_REMOVED", "QUEST_LOG_UPDATE", "UPDATE_INVENTORY_DURABILITY", "SKILL_LINES_CHANGED" }) do
 	ns.On(event, AnnounceSoon)
 end
 

@@ -1,6 +1,6 @@
 # BagBuddy (WoW Forever)
 
-See what a friend or family member is wearing, carrying and questing on, and know at a glance whether an item would be an upgrade for them. Both of you install BagBuddy.
+See what a friend or family member is wearing, carrying, questing on and able to craft, and know at a glance whether an item would be an upgrade for them. Both of you install BagBuddy.
 
 ## What it does
 
@@ -9,6 +9,9 @@ See what a friend or family member is wearing, carrying and questing on, and kno
   - *Their gear & bags*: their gear laid out like the character window (with average item level, gold and bag space in the middle), then each of their bags with every slot, empty ones included. A green arrow marks items in their own bags that would be upgrades for them (maybe they forgot to put it on). Hover for the tooltip, shift-click to link it in chat, use the search box to find something.
   - *Upgrades in my bags*: items in **your** bags that would be upgrades for them, best first. Soulbound ones are flagged, since you can't trade those.
   - *Quests*: two short lists. Quests they have that you don't (and haven't done), so you can go pick them up, and quests you have that they still need (not done, and their class and race can take it). Each shows its level, and with QuestieDB installed, who starts it and where. Quests they're too low for say `at level N`.
+  - *Professions*: their profession levels, and every recipe they know in its difficulty color (orange, yellow, green, gray), with how many they can make right now from what's in their bags or which reagent they're short of. Hover a recipe for its reagents, have and need. Recipes are shared once they've opened that profession's window.
+- **Gear checkup.** Next to their gear: broken or nearly broken items (also outlined red or orange), empty slots, and unspent talent points.
+- **Quest givers.** With QuestieDB installed, hovering an NPC shows the quests they still need from it (`Turtle Jerry needs: ...`, with `at level N` when they're too low) and the quests they can turn in there.
 - **Tooltips.** Hover any item anywhere (your bags, loot, quest rewards, vendors, chat links) and you'll see a line per buddy:
   - `Kid: Upgrade +12%` (or `(empty slot)`), plus `at level 25` if they're too low to wear it yet, and which item it would replace
   - `Not an upgrade (-8%)`, `About the same`, `Wearing this`

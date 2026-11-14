@@ -90,7 +90,56 @@ local function AddLines(tooltip, data)
 	end
 end
 
+---------------------------------------------------------------------------
+-- Quest givers: "Turtle Jerry needs: ..." on an NPC's tooltip
+---------------------------------------------------------------------------
+
+local function NpcID(tooltip, data)
+	local guid = type(data) == "table" and data.guid or nil
+	if not (guid and ns.Usable(guid)) and tooltip.GetUnit then
+		local ok, _, unit = pcall(tooltip.GetUnit, tooltip)
+		if ok and unit and ns.Usable(unit) then guid = UnitGUID(unit) end
+	end
+	if type(guid) ~= "string" or not ns.Usable(guid) then return nil end
+	local kind, _, _, _, _, id = strsplit("-", guid)
+	if kind ~= "Creature" then return nil end
+	return tonumber(id)
+end
+
+local MAX_QUEST_LINES = 3
+
+local function AddQuestLines(tooltip, data)
+	if not ns.db or not ns.db.tooltips or not LibQuestieDB then return end
+	local npcID = NpcID(tooltip, data)
+	if not npcID then return end
+	for _, key in ipairs(ns.PeerList()) do
+		local quests = ns.NpcQuestsFor(npcID, key)
+		if quests then
+			local snap = ns.db.peers[key].snap
+			local who = ns.ClassColor(snap.class) .. ns.Short(key) .. "|r"
+			for i, q in ipairs(quests.needs) do
+				if i > MAX_QUEST_LINES then
+					tooltip:AddLine(("    |cff999999and %d more|r"):format(#quests.needs - MAX_QUEST_LINES))
+					break
+				end
+				local text = ("%s needs: |cffffd100%s|r"):format(who, q.title)
+				if q.tooLow then text = text .. (" |cffff9933at level %d|r"):format(q.minLevel) end
+				tooltip:AddLine(text)
+			end
+			for _, q in ipairs(quests.turnIn) do
+				tooltip:AddLine(("%s can turn in: |cff20ff20%s|r"):format(who, q.title))
+			end
+		end
+	end
+end
+
 ns.OnLogin(function()
+	if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum.TooltipDataType and Enum.TooltipDataType.Unit then
+		TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, function(tooltip, data)
+			local ok, err = pcall(AddQuestLines, tooltip, data)
+			if not ok then ns.Debug("unit tooltip: " .. tostring(err)) end
+		end)
+	end
 	if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum.TooltipDataType then
 		TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltip, data)
 			local ok, err = pcall(AddLines, tooltip, data)

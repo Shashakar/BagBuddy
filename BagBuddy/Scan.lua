@@ -27,32 +27,49 @@ local function TraitTab()
 		end
 	end
 	table.sort(tabs, function(a, b) return a.order < b.order end)
-	local best, bestSpent = 0, 0
+	local best, bestSpent, total = 0, 0, 0
 	for i, tab in ipairs(tabs) do
+		total = total + tab.spent
 		if tab.spent > bestSpent then best, bestSpent = i, tab.spent end
 	end
-	return best
+	-- Points left to spend: the tree's own currency, when it says
+	local unspent
+	if C_Traits.GetTreeCurrencyInfo then
+		local ok, currencies = pcall(C_Traits.GetTreeCurrencyInfo, configID, treeID, false)
+		local first = ok and type(currencies) == "table" and currencies[1]
+		if first and type(first.quantity) == "number" and ns.Usable(first.quantity) then unspent = first.quantity end
+	end
+	return best, total, unspent
 end
 
 local function ClassicTab()
 	if not GetTalentTabInfo then return nil end
-	local best, bestSpent = 0, 0
+	local best, bestSpent, total = 0, 0, 0
 	for i = 1, 3 do
 		local ok, a, b, c, d, e = pcall(GetTalentTabInfo, i)
 		if not ok then return nil end
 		-- Classic: name, icon, pointsSpent; later clients: id, name, description, icon, pointsSpent
 		local spent = type(c) == "number" and c or (type(e) == "number" and e) or 0
+		total = total + spent
 		if spent > bestSpent then best, bestSpent = i, spent end
 	end
-	return best
+	return best, total
 end
 
+-- The talent tree with the most points, and how many points are waiting to be spent (Classic:
+-- one point a level from 10, when the game doesn't say)
 function ns.TalentTab()
-	local ok, tab = pcall(TraitTab)
-	if ok and tab then return tab end
-	ok, tab = pcall(ClassicTab)
-	if ok and tab then return tab end
-	return 0
+	local ok, tab, total, unspent = pcall(TraitTab)
+	if not (ok and tab) then
+		ok, tab, total = pcall(ClassicTab)
+		unspent = nil
+	end
+	if not (ok and tab) then return 0, nil end
+	if not unspent and total then
+		local level = UnitLevel("player") or 0
+		unspent = math.max(0, level - 9 - total)
+	end
+	return tab, unspent
 end
 
 ---------------------------------------------------------------------------
@@ -95,13 +112,21 @@ end
 function ns.ReadSelf()
 	local _, class = UnitClass("player")
 	local snap = {
-		class = class, level = UnitLevel("player"), tab = ns.TalentTab(), money = GetMoney(),
-		free = 0, total = 0, equip = {}, containers = {},
+		class = class, level = UnitLevel("player"), money = GetMoney(),
+		free = 0, total = 0, equip = {}, containers = {}, dura = {},
 	}
+	snap.tab, snap.unspent = ns.TalentTab()
 	for slot = 1, 19 do
 		local item = ns.ItemString(GetInventoryItemLink("player", slot))
-		if item then snap.equip[slot] = item end
+		if item then
+			snap.equip[slot] = item
+			local ok, cur, max = pcall(GetInventoryItemDurability, slot)
+			if ok and type(cur) == "number" and type(max) == "number" and ns.Usable(cur) and ns.Usable(max) and max > 0 then
+				snap.dura[slot] = math.floor(cur / max * 100)
+			end
+		end
 	end
+	snap.skills = ns.ReadSkills()
 	for bag = 0, LAST_BAG do
 		local slots = C_Container.GetContainerNumSlots(bag) or 0
 		if slots > 0 then
@@ -125,7 +150,8 @@ end
 
 ---------------------------------------------------------------------------
 -- Text
--- 3^CLASS^level^tab^money^free^total^slot=item,slot=item^containers^race^quest log^finished quests
+-- 4^CLASS^level^tab^money^free^total^slot=item,slot=item^containers^race^quest log^finished quests
+--   ^slot=durability%,...^unspent talent points^profession=rank=max~...
 -- containers: bag/bagitem/slots/slot=item*count!+slot=item;bag/...
 -- Items drop their "item:" prefix; "*n" is a count above 1, "!" marks soulbound.
 ---------------------------------------------------------------------------
@@ -160,16 +186,24 @@ function ns.Encode(snap)
 			table.concat(contents, "+")))
 	end
 	local log, completed = ns.EncodeQuests(snap)
-	return table.concat({ "3", snap.class or "", snap.level or 0, snap.tab or 0, snap.money or 0,
+	local dura = {}
+	for slot = 1, 19 do
+		if snap.dura and snap.dura[slot] then table.insert(dura, slot .. "=" .. snap.dura[slot]) end
+	end
+	local skills = {}
+	for _, skill in ipairs(snap.skills or {}) do
+		table.insert(skills, ("%s=%d=%d"):format((skill[1]:gsub("[%^~=]", "")), skill[2] or 0, skill[3] or 0))
+	end
+	return table.concat({ "4", snap.class or "", snap.level or 0, snap.tab or 0, snap.money or 0,
 		snap.free or 0, snap.total or 0, table.concat(equip, ","), table.concat(containers, ";"),
-		snap.race or 0, log, completed }, "^")
+		snap.race or 0, log, completed, table.concat(dura, ","), snap.unspent or "", table.concat(skills, "~") }, "^")
 end
 
 function ns.Decode(text)
 	local parts = {}
 	for part in (text .. "^"):gmatch("([^^]*)^") do table.insert(parts, part) end
 	local version = parts[1]
-	if (version ~= "1" and version ~= "2" and version ~= "3") or #parts < 9 then return nil end
+	if not (version == "1" or version == "2" or version == "3" or version == "4") or #parts < 9 then return nil end
 	local snap = {
 		class = parts[2], level = tonumber(parts[3]) or 0, tab = tonumber(parts[4]) or 0,
 		money = tonumber(parts[5]) or 0, free = tonumber(parts[6]) or 0, total = tonumber(parts[7]) or 0,
@@ -205,9 +239,18 @@ function ns.Decode(text)
 		end
 	end
 	Merge(snap)
-	if version == "3" and #parts >= 12 then
+	if #parts >= 12 then
 		snap.race = tonumber(parts[10]) or 0
 		ns.DecodeQuests(snap, parts[11], parts[12])
+	end
+	if #parts >= 15 then
+		snap.dura = {}
+		for slot, pct in parts[13]:gmatch("(%d+)=(%d+)") do snap.dura[tonumber(slot)] = tonumber(pct) end
+		snap.unspent = tonumber(parts[14])
+		snap.skills = {}
+		for name, rank, max in parts[15]:gmatch("([^~=]+)=(%d+)=(%d+)") do
+			table.insert(snap.skills, { name, tonumber(rank), tonumber(max) })
+		end
 	end
 	return snap
 end
