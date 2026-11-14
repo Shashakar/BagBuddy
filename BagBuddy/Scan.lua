@@ -119,12 +119,13 @@ function ns.ReadSelf()
 		end
 	end
 	Merge(snap)
+	ns.ReadQuests(snap)
 	return snap
 end
 
 ---------------------------------------------------------------------------
 -- Text
--- 2^CLASS^level^tab^money^free^total^slot=item,slot=item^containers
+-- 3^CLASS^level^tab^money^free^total^slot=item,slot=item^containers^race^quest log^finished quests
 -- containers: bag/bagitem/slots/slot=item*count!+slot=item;bag/...
 -- Items drop their "item:" prefix; "*n" is a count above 1, "!" marks soulbound.
 ---------------------------------------------------------------------------
@@ -158,15 +159,17 @@ function ns.Encode(snap)
 		table.insert(containers, ("%d/%s/%d/%s"):format(c.bag, c.item and c.item:sub(6) or "", c.slots,
 			table.concat(contents, "+")))
 	end
-	return table.concat({ "2", snap.class or "", snap.level or 0, snap.tab or 0, snap.money or 0,
-		snap.free or 0, snap.total or 0, table.concat(equip, ","), table.concat(containers, ";") }, "^")
+	local log, completed = ns.EncodeQuests(snap)
+	return table.concat({ "3", snap.class or "", snap.level or 0, snap.tab or 0, snap.money or 0,
+		snap.free or 0, snap.total or 0, table.concat(equip, ","), table.concat(containers, ";"),
+		snap.race or 0, log, completed }, "^")
 end
 
 function ns.Decode(text)
 	local parts = {}
 	for part in (text .. "^"):gmatch("([^^]*)^") do table.insert(parts, part) end
 	local version = parts[1]
-	if (version ~= "1" and version ~= "2") or #parts < 9 then return nil end
+	if (version ~= "1" and version ~= "2" and version ~= "3") or #parts < 9 then return nil end
 	local snap = {
 		class = parts[2], level = tonumber(parts[3]) or 0, tab = tonumber(parts[4]) or 0,
 		money = tonumber(parts[5]) or 0, free = tonumber(parts[6]) or 0, total = tonumber(parts[7]) or 0,
@@ -202,8 +205,13 @@ function ns.Decode(text)
 		end
 	end
 	Merge(snap)
+	if version == "3" and #parts >= 12 then
+		snap.race = tonumber(parts[10]) or 0
+		ns.DecodeQuests(snap, parts[11], parts[12])
+	end
 	return snap
 end
+
 -- A short fingerprint of a text, to tell whether a peer's bags changed
 function ns.Hash(text)
 	local h = 5381

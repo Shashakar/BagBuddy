@@ -2,7 +2,7 @@
 -- would be upgrades for them.
 local _, ns = ...
 
-local WIDTH, HEIGHT = 500, 600
+local WIDTH, HEIGHT = 520, 600
 local SIZE, GAP, PER_ROW = 34, 4, 11
 
 local SLOT_NAMES = { "Head", "Neck", "Shoulder", "Shirt", "Chest", "Waist", "Legs", "Feet", "Wrist", "Hands",
@@ -123,6 +123,8 @@ local function Label(i, text, y, x, font)
 		labels[i] = label
 	end
 	label:SetFontObject(font or "GameFontNormal")
+	label:SetWidth(0)
+	label:SetWordWrap(true)
 	label:ClearAllPoints()
 	label:SetPoint("TOPLEFT", x or 4, y)
 	label:SetJustifyH("LEFT")
@@ -352,6 +354,69 @@ local function DrawMine(key)
 	content:SetHeight(-y + 10)
 end
 
+local function QuestColor(level)
+	if GetQuestDifficultyColor and level and level > 0 then
+		local ok, c = pcall(GetQuestDifficultyColor, level)
+		if ok and type(c) == "table" and c.r then
+			return ("|cff%02x%02x%02x"):format(c.r * 255, c.g * 255, c.b * 255)
+		end
+	end
+	return "|cffffd100"
+end
+
+local function QuestMatches(q)
+	local text = search and search:GetText() or ""
+	return text == "" or q.title:lower():find(text:lower(), 1, true) ~= nil
+end
+
+local function DrawQuests(key)
+	local snap = ns.db.peers[key].snap
+	local name = ns.Short(key)
+	local width = content:GetWidth() - 16
+	local n = 0
+	local function Line(text, y, x, font)
+		n = n + 1
+		local nextY, label = Label(n, text, y, x, font)
+		label:SetWidth(width - (x or 4) + 4)
+		label:SetWordWrap(false)
+		return nextY
+	end
+	local function Quest(q, y, extra)
+		local text = ("%s[%s]|r %s"):format(QuestColor(q.level), q.level and q.level > 0 and q.level or "?", q.title)
+		if extra then text = text .. "  " .. extra end
+		if q.where then text = text .. "  |cff999999" .. q.where .. "|r" end
+		return Line(text, y, 14, "GameFontHighlight")
+	end
+	local y = -4
+	local theirs, mine = ns.CompareQuests(key)
+	if not theirs then
+		y = Line(("|cff999999%s's BagBuddy is too old to share quests. Send them version 1.2 or newer.|r"):format(name), y)
+		content:SetHeight(-y + 10)
+		return
+	end
+	y = Line(("Quests %s has that you don't  |cff999999(%d)|r"):format(name, #theirs), y, 4, "GameFontNormalLarge") - 4
+	local shown = 0
+	for _, q in ipairs(theirs) do
+		if QuestMatches(q) then y = Quest(q, y); shown = shown + 1 end
+	end
+	if shown == 0 then y = Line("|cff999999None.|r", y, 14) end
+	y = y - 14
+	y = Line(("Your quests %s still needs  |cff999999(%d)|r"):format(name, #mine), y, 4, "GameFontNormalLarge") - 4
+	shown = 0
+	for _, q in ipairs(mine) do
+		if QuestMatches(q) then
+			y = Quest(q, y, q.tooLow and ("|cffff9933at level %d|r"):format(q.minLevel) or nil)
+			shown = shown + 1
+		end
+	end
+	if shown == 0 then y = Line("|cff999999None.|r", y, 14) end
+	y = y - 10
+	if not LibQuestieDB then
+		y = Line("|cff999999Install QuestieDB to see where each quest starts.|r", y, 4, "GameFontHighlightSmall")
+	end
+	content:SetHeight(-y + 10)
+end
+
 local function DrawPeers()
 	local list = ns.PeerList()
 	if not selected or not ns.db.peers[selected] or not ns.db.peers[selected].snap then selected = list[1] end
@@ -402,7 +467,13 @@ local function Draw()
 	local snap = peer.snap
 	info:SetText(("%sLevel %d %s|r, %s  |cff999999updated %s|r  %s"):format(ns.ClassColor(snap.class), snap.level or 0,
 		ns.ClassName(snap.class), ns.RoleName(selected), ns.Ago(peer.time), ns.Money(snap.money)))
-	if mode == "mine" then DrawMine(selected) else DrawTheirs(selected) end
+	if mode == "mine" then
+		DrawMine(selected)
+	elseif mode == "quests" then
+		DrawQuests(selected)
+	else
+		DrawTheirs(selected)
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -457,9 +528,15 @@ local function Create()
 	mine:SetText("Upgrades in my bags")
 	mine:SetScript("OnClick", function() mode = "mine"; ns.RefreshViewer(true) end)
 	modeButtons.mine = mine
+	local quests = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+	quests:SetSize(70, 22)
+	quests:SetPoint("LEFT", mine, "RIGHT", 4, 0)
+	quests:SetText("Quests")
+	quests:SetScript("OnClick", function() mode = "quests"; ns.RefreshViewer(true) end)
+	modeButtons.quests = quests
 
 	search = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
-	search:SetSize(140, 20)
+	search:SetSize(120, 20)
 	search:SetPoint("TOPRIGHT", -18, -77)
 	search:SetAutoFocus(false)
 	search:SetScript("OnTextChanged", function() ns.RefreshViewer(true) end)

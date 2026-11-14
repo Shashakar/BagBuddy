@@ -1,13 +1,14 @@
 ## Interface: 16001
 ## Title: BagBuddy
-## Notes: Shares bags and worn gear with friends and family who also run BagBuddy, and tells you in item tooltips when something would be an upgrade for them.
+## Notes: Shares bags, worn gear and quests with friends and family who also run BagBuddy, and tells you in item tooltips when something would be an upgrade for them.
 ## Author: Dex
-## Version: 1.1.1
+## Version: 1.2.0
 ## IconTexture: Interface\Icons\INV_Misc_Bag_10
 ## SavedVariables: BagBuddyDB
 
 Core.lua
 Gear.lua
+Quests.lua
 Scan.lua
 Comm.lua
 Tooltip.lua
