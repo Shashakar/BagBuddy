@@ -1,0 +1,38 @@
+name: Release
+
+# Push a tag like v1.2.0 and this zips the BagBuddy folder and publishes it as a GitHub release,
+# with a release.json that addon managers such as WowUp read.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Lua syntax
+        run: |
+          sudo apt-get update && sudo apt-get install -y lua5.1
+          for f in BagBuddy/*.lua; do luac5.1 -p "$f"; done
+
+      - name: Package
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          sed -i "s/^## Version: .*/## Version: ${version}/" BagBuddy/BagBuddy.toc
+          cp README.md LICENSE BagBuddy/
+          zip -r "BagBuddy-${GITHUB_REF_NAME}.zip" BagBuddy
+          cat > release.json <<JSON
+          {"releases":[{"name":"BagBuddy","version":"${GITHUB_REF_NAME}","filename":"BagBuddy-${GITHUB_REF_NAME}.zip","nolib":false,"metadata":[{"flavor":"mainline","interface":16001}]}]}
+          JSON
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "BagBuddy-${GITHUB_REF_NAME}.zip" release.json \
+            --title "BagBuddy $GITHUB_REF_NAME" --generate-notes
