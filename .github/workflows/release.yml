@@ -1,10 +1,16 @@
 name: Release
 
-# Push a tag like v1.2.0 and this zips the BagBuddy folder and publishes it as a GitHub release,
-# with a release.json that addon managers such as WowUp read.
+# Push a tag like v1.2.0, or run it by hand with a version, and this zips the BagBuddy folder and
+# publishes it as a GitHub release (creating the tag), with a release.json that addon managers
+# such as WowUp read.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag, such as v1.2.0"
+        required: true
 
 permissions:
   contents: write
@@ -20,19 +26,22 @@ jobs:
           sudo apt-get update && sudo apt-get install -y lua5.1
           for f in BagBuddy/*.lua; do luac5.1 -p "$f"; done
 
+      - name: Version
+        run: echo "TAG=${{ github.event.inputs.version || github.ref_name }}" >> "$GITHUB_ENV"
+
       - name: Package
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${TAG#v}"
           sed -i "s/^## Version: .*/## Version: ${version}/" BagBuddy/BagBuddy.toc
           cp README.md LICENSE BagBuddy/
-          zip -r "BagBuddy-${GITHUB_REF_NAME}.zip" BagBuddy
+          zip -r "BagBuddy-${TAG}.zip" BagBuddy
           cat > release.json <<JSON
-          {"releases":[{"name":"BagBuddy","version":"${GITHUB_REF_NAME}","filename":"BagBuddy-${GITHUB_REF_NAME}.zip","nolib":false,"metadata":[{"flavor":"mainline","interface":16001}]}]}
+          {"releases":[{"name":"BagBuddy","version":"${TAG}","filename":"BagBuddy-${TAG}.zip","nolib":false,"metadata":[{"flavor":"mainline","interface":16001}]}]}
           JSON
 
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "BagBuddy-${GITHUB_REF_NAME}.zip" release.json \
-            --title "BagBuddy $GITHUB_REF_NAME" --generate-notes
+          gh release create "$TAG" "BagBuddy-${TAG}.zip" release.json \
+            --target "$GITHUB_SHA" --title "BagBuddy $TAG" --generate-notes

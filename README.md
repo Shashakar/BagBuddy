@@ -54,4 +54,4 @@ Stat weights and the talent-tree reading are adapted from [Forever++](https://gi
 
 ## Releasing
 
-Push a tag such as `v1.2.0`. The Release workflow zips `BagBuddy/`, stamps the version into the TOC and publishes a GitHub release.
+Push a tag such as `v1.2.0`, or run the Release workflow by hand with a version (`gh workflow run release.yml -f version=v1.2.0`). It zips `BagBuddy/`, stamps the version into the TOC and publishes a GitHub release.
