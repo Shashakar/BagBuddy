@@ -426,13 +426,54 @@ local function QuestMatches(q)
 	return text == "" or q.title:lower():find(text:lower(), 1, true) ~= nil
 end
 
--- One quest line, with an Ignore (or Unignore) button on the right
+-- Addons can't open a browser, so show the Wowhead link in a box ready to copy (Ctrl+C)
+local WOWHEAD = "https://www.wowhead.com/classic/quest=%d"
+StaticPopupDialogs = StaticPopupDialogs or {}
+StaticPopupDialogs["BAGBUDDY_LINK"] = {
+	text = "%s\n|cff999999Press Ctrl+C to copy, then paste it in your browser.|r",
+	button1 = OKAY or "OK",
+	hasEditBox = true,
+	editBoxWidth = 320,
+	OnShow = function(self, data)
+		local box = self.editBox or self.EditBox or (self.GetEditBox and self:GetEditBox())
+		if box then
+			box:SetText(data or "")
+			box:SetFocus()
+			box:HighlightText()
+		end
+	end,
+	EditBoxOnEscapePressed = function(box) box:GetParent():Hide() end,
+	EditBoxOnEnterPressed = function(box) box:GetParent():Hide() end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+
+local function ShowQuestLink(id, title)
+	local url = WOWHEAD:format(id)
+	StaticPopup_Show("BAGBUDDY_LINK", title or ("Quest " .. id), nil, url)
+end
+
+-- One quest line, with an Ignore (or Unignore) button on the right. Click the line for its
+-- Wowhead link.
 local function QuestRow(i)
 	local row = questRows[i]
 	if row then return row end
-	row = CreateFrame("Frame", nil, content)
+	row = CreateFrame("Button", nil, content)
 	row:SetFrameLevel(content:GetFrameLevel() + 3)
 	row:SetHeight(18)
+	row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+	row:SetScript("OnClick", function(self)
+		if self.questID then ShowQuestLink(self.questID, self.title) end
+	end)
+	row:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText(self.title or "")
+		GameTooltip:AddLine("Click for its Wowhead link", 0.6, 0.6, 0.6)
+		GameTooltip:Show()
+	end)
+	row:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	row.toggle = CreateFrame("Button", nil, row)
 	row.toggle:SetSize(64, 16)
 	row.toggle:SetPoint("RIGHT", -2, 0)
@@ -475,7 +516,7 @@ local function DrawQuests(key)
 		if q.where then text = text .. "  |cff999999" .. q.where .. "|r" end
 		r = r + 1
 		local row = QuestRow(r)
-		row.questID = q.id
+		row.questID, row.title = q.id, q.title
 		row.text:SetText(text)
 		row.toggle:SetText(toggleText or "ignore")
 		row:ClearAllPoints()
