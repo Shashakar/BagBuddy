@@ -506,7 +506,18 @@ local function DrawQuests(key)
 		if shown == 0 then y = Line("|cff999999None.|r", y, 14) end
 		y = y - 14
 	end
-	Section(("Quests %s has that you don't"):format(name), theirs)
+	-- Quests done and waiting to be turned in come first, and only once
+	local ready = ns.ReadyToTurnIn(key) or {}
+	local isReady = {}
+	for _, q in ipairs(ready) do isReady[q.id] = true end
+	local rest = {}
+	for _, q in ipairs(theirs) do
+		if not isReady[q.id] then table.insert(rest, q) end
+	end
+	if #ready > 0 then
+		Section(("|cff20ff20%s can turn in|r"):format(name), ready)
+	end
+	Section(("Quests %s has that you don't"):format(name), rest)
 	Section(("Your quests %s still needs"):format(name), mine, function(q)
 		return q.tooLow and ("|cffff9933at level %d|r"):format(q.minLevel) or nil
 	end)

@@ -2,7 +2,7 @@
 ## Title: BagBuddy
 ## Notes: Shares bags, worn gear, quests and recipes with friends and family who also run BagBuddy, and tells you in item tooltips when something would be an upgrade for them.
 ## Author: Dex
-## Version: 1.4.0
+## Version: 1.4.1
 ## IconTexture: Interface\Icons\INV_Misc_Bag_10
 ## SavedVariables: BagBuddyDB
 
