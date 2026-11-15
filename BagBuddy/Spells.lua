@@ -1,13 +1,10 @@
--- BagBuddy: spells this character knows but hasn't put on an action bar. The same test the
--- spellbook uses for its "not on your bars" glow (Blizzard's SpellSearchUtil), read here so it
--- can travel with the snapshot.
+-- BagBuddy: spells this character knows but hasn't put on an action bar (what the spellbook's
+-- "not on your bars" glow shows), read here so it can travel with the snapshot.
 local _, ns = ...
 
+-- Only the game's own C functions here: calling Blizzard's Lua helpers (ActionButtonUtil) from
+-- an addon can taint the action bars
 local function Missing(spellID)
-	if ActionButtonUtil and ActionButtonUtil.GetActionBarStatusForSpell and ActionButtonUtil.ActionBarActionStatus then
-		local ok, status = pcall(ActionButtonUtil.GetActionBarStatusForSpell, spellID, true, false)
-		if ok then return status == ActionButtonUtil.ActionBarActionStatus.MissingFromAllBars end
-	end
 	if C_ActionBar and C_ActionBar.FindSpellActionButtons then
 		local ok, slots = pcall(C_ActionBar.FindSpellActionButtons, spellID)
 		if ok then return not (type(slots) == "table" and #slots > 0) end

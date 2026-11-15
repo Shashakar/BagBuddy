@@ -428,8 +428,8 @@ end
 
 -- Addons can't open a browser, so show the Wowhead link in a box ready to copy (Ctrl+C)
 local WOWHEAD = "https://www.wowhead.com/classic/quest=%d"
-StaticPopupDialogs = StaticPopupDialogs or {}
-StaticPopupDialogs["BAGBUDDY_LINK"] = {
+-- Never assign the StaticPopupDialogs global itself: that taints Blizzard code reading it
+local LINK_POPUP = {
 	text = "%s\n|cff999999Press Ctrl+C to copy, then paste it in your browser.|r",
 	button1 = OKAY or "OK",
 	hasEditBox = true,
@@ -449,6 +449,7 @@ StaticPopupDialogs["BAGBUDDY_LINK"] = {
 	hideOnEscape = true,
 	preferredIndex = 3,
 }
+if StaticPopupDialogs then StaticPopupDialogs.BAGBUDDY_LINK = LINK_POPUP end
 
 local function ShowQuestLink(id, title)
 	local url = WOWHEAD:format(id)
