@@ -164,9 +164,10 @@ local function EntryText(entry)
 end
 
 local function ParseEntry(text)
-	local item, rest = text:match("^([%d:%-]+)(.*)$")
+	local item, rest = text:match("^([^*!]+)(.*)$")
+	item = item and ns.ItemString("item:" .. item)
 	if not item then return nil end
-	return { "item:" .. item, tonumber(rest:match("%*(%d+)")) or 1, rest:find("!", 1, true) and true or false }
+	return { item, tonumber(rest:match("%*(%d+)")) or 1, rest:find("!", 1, true) and true or false }
 end
 
 function ns.Encode(snap)
@@ -209,8 +210,8 @@ function ns.Decode(text)
 		money = tonumber(parts[5]) or 0, free = tonumber(parts[6]) or 0, total = tonumber(parts[7]) or 0,
 		equip = {}, containers = {},
 	}
-	for slot, item in parts[8]:gmatch("(%d+)=([%d:%-]+)") do
-		snap.equip[tonumber(slot)] = "item:" .. item
+	for slot, item in parts[8]:gmatch("(%d+)=([^,]+)") do
+		snap.equip[tonumber(slot)] = ns.ItemString("item:" .. item)
 	end
 	if version == "1" then
 		-- An older BagBuddy: one list, no bags
@@ -227,9 +228,9 @@ function ns.Decode(text)
 		table.insert(snap.containers, container)
 	else
 		for text in parts[9]:gmatch("[^;]+") do
-			local bag, bagItem, slots, contents = text:match("^(%-?%d+)/([%d:%-]*)/(%d+)/(.*)$")
+			local bag, bagItem, slots, contents = text:match("^(%-?%d+)/([^/]*)/(%d+)/(.*)$")
 			if bag then
-				local container = { bag = tonumber(bag), item = bagItem ~= "" and ("item:" .. bagItem) or nil,
+				local container = { bag = tonumber(bag), item = bagItem ~= "" and ns.ItemString("item:" .. bagItem) or nil,
 					slots = tonumber(slots), contents = {} }
 				for slot, entry in contents:gmatch("(%d+)=([^+]+)") do
 					container.contents[tonumber(slot)] = ParseEntry(entry)

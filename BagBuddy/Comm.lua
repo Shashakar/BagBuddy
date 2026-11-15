@@ -215,6 +215,9 @@ local function Unpack(data)
 	return nil
 end
 
+-- Bumped when decoding changes, so snapshots read by an older BagBuddy are asked for again
+local DECODER = 2
+
 local function Store(sender, hash, text)
 	if ns.Hash(text) ~= hash then ns.Debug("snapshot from " .. sender .. " didn't add up"); return end
 	local snap = ns.Decode(text)
@@ -227,7 +230,7 @@ local function Store(sender, hash, text)
 		end
 	end
 	ns.db.peers[sender] = peer
-	peer.snap, peer.hash, peer.time = snap, hash, GetServerTime()
+	peer.snap, peer.hash, peer.time, peer.decoder = snap, hash, GetServerTime(), DECODER
 	peer.partner = true
 	if not told[sender] then
 		told[sender] = true
@@ -246,7 +249,7 @@ end
 
 local function OnHello(sender, hash, rhash)
 	local peer = ns.db.peers[sender]
-	if not peer or peer.hash ~= hash then
+	if not peer or peer.hash ~= hash or peer.decoder ~= DECODER then
 		Send("R", "WHISPER", sender)
 	elseif peer then
 		peer.time = GetServerTime()

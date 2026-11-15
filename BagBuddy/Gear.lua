@@ -15,8 +15,16 @@ local _, ns = ...
 -- so the same item reads the same wherever it came from.
 function ns.ItemString(link)
 	if type(link) ~= "string" or not ns.Usable(link) then return nil end
-	local s = link:match("|H(item:[^|]+)|h") or link:match("^(item:[%d:%-]+)")
+	local s = link:match("|H(item:[^|]+)|h") or link:match("^(item:[^|%s,;+/%^~=*!]+)")
 	if not s then return nil end
+	-- Keep only numeric fields: crafted items can carry the crafter (a "Player-..." GUID)
+	-- or other text, which would break the snapshot text
+	local fields = {}
+	for field in (s:sub(6) .. ":"):gmatch("([^:]*):") do
+		table.insert(fields, field:match("^%-?%d+$") and field or "")
+	end
+	if not fields[1] or fields[1] == "" then return nil end
+	s = "item:" .. table.concat(fields, ":")
 	local trimmed
 	repeat
 		trimmed = s
