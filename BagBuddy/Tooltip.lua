@@ -16,13 +16,14 @@ function ns.CountIn(snap, itemString)
 	return count
 end
 
--- The text for one peer about one item, or nil when there's nothing to say
-function ns.VerdictText(key, itemString, withCount)
+-- The text for one peer about one item, or nil when there's nothing to say. `countOnly` skips
+-- the upgrade verdict (for our own soulbound items, which we can't give away).
+function ns.VerdictText(key, itemString, withCount, countOnly)
 	local peer = ns.db.peers[key]
 	local snap = peer and peer.snap
 	if not snap then return nil end
 	local parts = {}
-	local result = ns.Compare(itemString, key)
+	local result = not countOnly and ns.Compare(itemString, key) or nil
 	if result then
 		local s = result.status
 		if s == "upgrade" then
@@ -69,16 +70,37 @@ local function TooltipItem(tooltip, data)
 	return nil
 end
 
+-- Whether the tooltip says the item is soulbound to us
+local function Soulbound(tooltip, data)
+	local bound = ITEM_SOULBOUND or "Soulbound"
+	if type(data) == "table" and type(data.lines) == "table" then
+		for _, line in ipairs(data.lines) do
+			local text = type(line) == "table" and line.leftText
+			if type(text) == "string" and ns.Usable(text) and text == bound then return true end
+		end
+	end
+	local name = tooltip.GetName and tooltip:GetName()
+	if name and tooltip.NumLines then
+		for i = 1, math.min(tooltip:NumLines() or 0, 8) do
+			local line = _G[name .. "TextLeft" .. i]
+			local ok, text = pcall(line and line.GetText or function() end, line)
+			if ok and type(text) == "string" and ns.Usable(text) and text == bound then return true end
+		end
+	end
+	return false
+end
+
 local function AddLines(tooltip, data)
 	if not ns.db or not ns.db.tooltips then return end
 	if tooltip == ShoppingTooltip1 or tooltip == ShoppingTooltip2 then return end
 	local itemString = TooltipItem(tooltip, data)
 	if not itemString then return end
 	local now = GetServerTime()
+	local bound = Soulbound(tooltip, data)
 	for _, key in ipairs(ns.PeerList()) do
 		local peer = ns.db.peers[key]
 		if now - (peer.time or 0) < MAX_AGE then
-			local text, result = ns.VerdictText(key, itemString, true)
+			local text, result = ns.VerdictText(key, itemString, true, bound)
 			if text then
 				tooltip:AddLine(text)
 				if result and result.status == "upgrade" and result.rival then

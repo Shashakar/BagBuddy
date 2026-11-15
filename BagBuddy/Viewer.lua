@@ -381,12 +381,12 @@ local function DrawMine(key)
 	local list = {}
 	for _, entry in ipairs(mine.bags) do
 		local result = ns.Compare(entry[1], key)
-		if result and (result.status == "upgrade" or result.status == "pending") and Matches(entry[1]) then
+		-- Soulbound items can't be handed over, so they're no use to anyone else
+		if not entry[3] and result and (result.status == "upgrade" or result.status == "pending") and Matches(entry[1]) then
 			table.insert(list, { entry = entry, result = result })
 		end
 	end
 	table.sort(list, function(a, b)
-		if a.entry[3] ~= b.entry[3] then return not a.entry[3] end
 		return (a.result.percent or 1000) > (b.result.percent or 1000)
 	end)
 	local y = Label(1, ("Items in your bags that would be upgrades for %s"):format(ns.Short(key)), -4)
@@ -404,7 +404,6 @@ local function DrawMine(key)
 		local itemInfo = ns.ItemInfo(row.entry[1])
 		local text = ns.VerdictText(key, row.entry[1]) or ""
 		text = text:gsub("^.-|r: ", "")
-		if row.entry[3] then text = text .. "  |cffff8080soulbound, can't trade|r" end
 		frameRow.text:SetText((itemInfo and itemInfo.link or "...") .. "\n" .. text)
 		frameRow:Show()
 		y = y - SIZE - GAP
