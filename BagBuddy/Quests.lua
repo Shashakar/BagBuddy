@@ -194,27 +194,6 @@ function ns.QuestTurnIn(id)
 	return (npc and NpcName(npc)) or (object and ObjectName(object)) or nil
 end
 
--- Quests in a buddy's log whose objectives are done, waiting to be turned in
-function ns.ReadyToTurnIn(key)
-	local peer = ns.db.peers[key]
-	local snap = peer and peer.snap
-	if not snap or not snap.hasQuests then return nil end
-	local list = {}
-	for _, q in ipairs(snap.log or {}) do
-		if q[3] then
-			local details = ns.QuestDetails(q[1], q[4], q[2])
-			local turnIn = ns.QuestTurnIn(q[1])
-			details.where = turnIn and ("turn in to " .. turnIn) or nil
-			table.insert(list, details)
-		end
-	end
-	table.sort(list, function(a, b)
-		if (a.level or 0) ~= (b.level or 0) then return (a.level or 0) < (b.level or 0) end
-		return a.title < b.title
-	end)
-	return list
-end
-
 ---------------------------------------------------------------------------
 -- Comparing
 ---------------------------------------------------------------------------
@@ -257,6 +236,32 @@ function ns.CompareQuests(key)
 	table.sort(mine, byLevel)
 	return theirs, mine
 end
+
+-- Quests in a buddy's log whose objectives are done, waiting to be turned in, that we've
+-- already turned in ourselves (ones we both still have to hand in aren't worth a reminder)
+function ns.ReadyToTurnIn(key)
+	local peer = ns.db.peers[key]
+	local snap = peer and peer.snap
+	if not snap or not snap.hasQuests then return nil end
+	local me = {}
+	ns.ReadQuests(me)
+	local myDone = Set(me.completed)
+	local list = {}
+	for _, q in ipairs(snap.log or {}) do
+		if q[3] and myDone[q[1]] then
+			local details = ns.QuestDetails(q[1], q[4], q[2])
+			local turnIn = ns.QuestTurnIn(q[1])
+			details.where = turnIn and ("turn in to " .. turnIn) or nil
+			table.insert(list, details)
+		end
+	end
+	table.sort(list, function(a, b)
+		if (a.level or 0) ~= (b.level or 0) then return (a.level or 0) < (b.level or 0) end
+		return a.title < b.title
+	end)
+	return list
+end
+
 
 ---------------------------------------------------------------------------
 -- Quest givers: what an NPC has for a buddy (QuestieDB only)

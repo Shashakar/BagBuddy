@@ -555,7 +555,7 @@ local function DrawQuests(key)
 		if not isReady[q.id] then table.insert(rest, q) end
 	end
 	if #ready > 0 then
-		Section(("|cff20ff20%s can turn in|r"):format(name), ready)
+		Section(("|cff20ff20%s can turn in (you already did)|r"):format(name), ready)
 	end
 	Section(("Quests %s has that you don't"):format(name), rest)
 	Section(("Your quests %s still needs"):format(name), mine, function(q)
