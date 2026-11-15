@@ -10,7 +10,7 @@ local SLOT_NAMES = { "Head", "Neck", "Shoulder", "Shirt", "Chest", "Waist", "Leg
 local SLOT_ORDER = { 1, 2, 3, 15, 5, 9, 10, 6, 7, 8, 11, 12, 13, 14, 16, 17, 18, 4, 19 }
 
 local frame, scroll, content, title, info, search, modeButtons, emptyText
-local peerButtons, itemButtons, rows, labels, recipeRows = {}, {}, {}, {}, {}
+local peerButtons, itemButtons, rows, labels, recipeRows, questRows = {}, {}, {}, {}, {}, {}
 local selected, mode = nil, "theirs"
 
 ---------------------------------------------------------------------------
@@ -170,6 +170,7 @@ end
 
 local function HideAll()
 	for _, r in ipairs(recipeRows) do r:Hide() end
+	for _, r in ipairs(questRows) do r:Hide() end
 	if content.bagPanel then content.bagPanel:Hide() end
 	for _, b in ipairs(itemButtons) do b:Hide() end
 	for _, r in ipairs(rows) do r:Hide() end
@@ -297,6 +298,15 @@ local function DrawTheirs(key)
 			Wrapped(("|cffffd100%d unspent talent point%s|r"):format(snap.unspent, snap.unspent == 1 and "" or "s"))
 			issues = issues + 1
 		end
+		if snap.unplaced and #snap.unplaced > 0 then
+			local names = {}
+			for _, id in ipairs(snap.unplaced) do
+				local name, icon = ns.SpellName(id)
+				table.insert(names, icon and ("|T%s:14|t %s"):format(icon, name) or name)
+			end
+			Wrapped("|cffffd100Not on action bars:|r " .. table.concat(names, ", "))
+			issues = issues + 1
+		end
 		if issues == 0 then Wrapped("|cff20ff20Gear checkup: all good|r") end
 	end
 	local centerBottom = y
@@ -417,11 +427,42 @@ local function QuestMatches(q)
 	return text == "" or q.title:lower():find(text:lower(), 1, true) ~= nil
 end
 
+-- One quest line, with an Ignore (or Unignore) button on the right
+local function QuestRow(i)
+	local row = questRows[i]
+	if row then return row end
+	row = CreateFrame("Frame", nil, content)
+	row:SetFrameLevel(content:GetFrameLevel() + 3)
+	row:SetHeight(18)
+	row.toggle = CreateFrame("Button", nil, row)
+	row.toggle:SetSize(64, 16)
+	row.toggle:SetPoint("RIGHT", -2, 0)
+	row.toggle:SetNormalFontObject("GameFontDisableSmall")
+	row.toggle:SetHighlightFontObject("GameFontHighlightSmall")
+	row.toggle:SetText("ignore")
+	row.toggle:GetFontString():SetJustifyH("RIGHT")
+	row.toggle:GetFontString():SetPoint("RIGHT")
+	row.toggle:SetScript("OnClick", function(self)
+		local id = self:GetParent().questID
+		if not id then return end
+		ns.db.ignoredQuests[id] = not ns.db.ignoredQuests[id] or nil
+		ns.RefreshViewer(true)
+	end)
+	row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	row.text:SetPoint("LEFT", 0, 0)
+	row.text:SetPoint("RIGHT", row.toggle, "LEFT", -6, 0)
+	row.text:SetJustifyH("LEFT")
+	row.text:SetWordWrap(false)
+	questRows[i] = row
+	return row
+end
+
 local function DrawQuests(key)
 	local snap = ns.db.peers[key].snap
 	local name = ns.Short(key)
 	local width = content:GetWidth() - 16
-	local n = 0
+	local n, r = 0, 0
+	local ignored = ns.db.ignoredQuests
 	local function Line(text, y, x, font)
 		n = n + 1
 		local nextY, label = Label(n, text, y, x, font)
@@ -429,11 +470,20 @@ local function DrawQuests(key)
 		label:SetWordWrap(false)
 		return nextY
 	end
-	local function Quest(q, y, extra)
+	local function Quest(q, y, extra, toggleText)
 		local text = ("%s[%s]|r %s"):format(QuestColor(q.level), q.level and q.level > 0 and q.level or "?", q.title)
 		if extra then text = text .. "  " .. extra end
 		if q.where then text = text .. "  |cff999999" .. q.where .. "|r" end
-		return Line(text, y, 14, "GameFontHighlight")
+		r = r + 1
+		local row = QuestRow(r)
+		row.questID = q.id
+		row.text:SetText(text)
+		row.toggle:SetText(toggleText or "ignore")
+		row:ClearAllPoints()
+		row:SetPoint("TOPLEFT", 14, y + 2)
+		row:SetWidth(width - 10)
+		row:Show()
+		return y - 18
 	end
 	local y = -4
 	local theirs, mine = ns.CompareQuests(key)
@@ -442,23 +492,31 @@ local function DrawQuests(key)
 		content:SetHeight(-y + 10)
 		return
 	end
-	y = Line(("Quests %s has that you don't  |cff999999(%d)|r"):format(name, #theirs), y, 4, "GameFontNormalLarge") - 4
-	local shown = 0
-	for _, q in ipairs(theirs) do
-		if QuestMatches(q) then y = Quest(q, y); shown = shown + 1 end
-	end
-	if shown == 0 then y = Line("|cff999999None.|r", y, 14) end
-	y = y - 14
-	y = Line(("Your quests %s still needs  |cff999999(%d)|r"):format(name, #mine), y, 4, "GameFontNormalLarge") - 4
-	shown = 0
-	for _, q in ipairs(mine) do
-		if QuestMatches(q) then
-			y = Quest(q, y, q.tooLow and ("|cffff9933at level %d|r"):format(q.minLevel) or nil)
-			shown = shown + 1
+	local hidden = {}
+	local function Section(header, list, extraFor)
+		local visible = {}
+		for _, q in ipairs(list) do
+			if ignored[q.id] then table.insert(hidden, q) else table.insert(visible, q) end
 		end
+		y = Line(("%s  |cff999999(%d)|r"):format(header, #visible), y, 4, "GameFontNormalLarge") - 4
+		local shown = 0
+		for _, q in ipairs(visible) do
+			if QuestMatches(q) then y = Quest(q, y, extraFor and extraFor(q)); shown = shown + 1 end
+		end
+		if shown == 0 then y = Line("|cff999999None.|r", y, 14) end
+		y = y - 14
 	end
-	if shown == 0 then y = Line("|cff999999None.|r", y, 14) end
-	y = y - 10
+	Section(("Quests %s has that you don't"):format(name), theirs)
+	Section(("Your quests %s still needs"):format(name), mine, function(q)
+		return q.tooLow and ("|cffff9933at level %d|r"):format(q.minLevel) or nil
+	end)
+	if #hidden > 0 then
+		y = Line(("Ignored  |cff999999(%d)|r"):format(#hidden), y, 4, "GameFontNormal") - 2
+		for _, q in ipairs(hidden) do
+			if QuestMatches(q) then y = Quest(q, y, nil, "unignore") end
+		end
+		y = y - 10
+	end
 	if not LibQuestieDB then
 		y = Line("|cff999999Install QuestieDB to see where each quest starts.|r", y, 4, "GameFontHighlightSmall")
 	end

@@ -9,6 +9,7 @@ local DEFAULTS = {
 	debug = false,
 	peers = {},        -- [Name-Realm] = { snap = {...}, hash = "...", time = epoch, partner = bool, role = "tank"/nil }
 	point = nil,       -- viewer position
+	ignoredQuests = {}, -- [questID] = true: hidden from the Quests tab and NPC tooltips
 }
 
 local function CopyDefaults(defaults, db)
@@ -151,10 +152,60 @@ function ns.RememberSelf(key)
 end
 
 -- Peers with data, sorted by name
-function ns.PeerList()
+---------------------------------------------------------------------------
+-- Who is in our group. Forever names can have a surname ("Turtle Jerry"), and UnitName gives
+-- it as its second value, so try the name every way it can be spelled. Buddies whose addon
+-- messages arrive on the group channel count too.
+---------------------------------------------------------------------------
+
+ns.groupSeen = {}
+
+local function Bare(name)
+	return (name or ""):lower():gsub("%-.*$", ""):gsub("%s+$", "")
+end
+
+local function GroupNames()
+	local names = {}
+	local function add(name)
+		if type(name) == "string" and not IsSecret(name) and name ~= "" then names[Bare(name)] = true end
+	end
+	local units = {}
+	if IsInRaid and IsInRaid() then
+		for i = 1, 40 do table.insert(units, "raid" .. i) end
+	else
+		for i = 1, 4 do table.insert(units, "party" .. i) end
+	end
+	for _, unit in ipairs(units) do
+		if UnitExists(unit) then
+			local ok, name, second = pcall(UnitName, unit)
+			if ok and type(name) == "string" and not IsSecret(name) then
+				add(name)
+				if type(second) == "string" and not IsSecret(second) and second ~= "" then
+					add(name .. " " .. second)
+				end
+			end
+			if GetUnitName then
+				local ok2, full = pcall(GetUnitName, unit, true)
+				if ok2 then add(full) end
+			end
+		end
+	end
+	return names
+end
+
+function ns.InMyGroup(key)
+	if not (IsInGroup and IsInGroup()) then return false end
+	if ns.groupSeen[key] then return true end
+	return GroupNames()[Bare(key)] or false
+end
+
+-- Buddies to show: everyone in our group who runs BagBuddy, or when we're not grouped (or
+-- `all`), everyone we have bags for
+function ns.PeerList(all)
 	local list = {}
+	local grouped = not all and IsInGroup and IsInGroup()
 	for key, peer in pairs(ns.db.peers) do
-		if peer.snap and not ns.IsMe(key) then table.insert(list, key) end
+		if peer.snap and not ns.IsMe(key) and (not grouped or ns.InMyGroup(key)) then table.insert(list, key) end
 	end
 	table.sort(list)
 	return list
@@ -242,7 +293,7 @@ local function Help()
 end
 
 local function List()
-	local list = ns.PeerList()
+	local list = ns.PeerList(true)
 	if #list == 0 then
 		ns.Print("no bags yet. Group up with someone who runs BagBuddy, or /bud add <name> for a friend.")
 		return

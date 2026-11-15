@@ -117,9 +117,13 @@ local function AddQuestLines(tooltip, data)
 		if quests then
 			local snap = ns.db.peers[key].snap
 			local who = ns.ClassColor(snap.class) .. ns.Short(key) .. "|r"
-			for i, q in ipairs(quests.needs) do
+			local needs = {}
+			for _, q in ipairs(quests.needs) do
+				if not ns.db.ignoredQuests[q.id] then table.insert(needs, q) end
+			end
+			for i, q in ipairs(needs) do
 				if i > MAX_QUEST_LINES then
-					tooltip:AddLine(("    |cff999999and %d more|r"):format(#quests.needs - MAX_QUEST_LINES))
+					tooltip:AddLine(("    |cff999999and %d more|r"):format(#needs - MAX_QUEST_LINES))
 					break
 				end
 				local text = ("%s needs: |cffffd100%s|r"):format(who, q.title)

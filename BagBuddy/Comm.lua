@@ -294,6 +294,12 @@ ns.On("CHAT_MSG_ADDON", function(prefix, msg, channel, sender)
 	sender = ns.FullName(sender)
 	if not sender or ns.SamePlayer(sender, ns.Me()) or ns.IsMe(sender) then return end
 	local kind = msg:sub(1, 1)
+	if channel == "PARTY" or channel == "RAID" or channel == "INSTANCE_CHAT" then
+		if not ns.groupSeen[sender] then
+			ns.groupSeen[sender] = true
+			ns.RefreshViewer()
+		end
+	end
 	if kind == "H" then
 		local hash, session, rhash = msg:match("^H:(%x+):?(%x*):?(%x*)")
 		if session == ns.session then
@@ -336,12 +342,16 @@ end)
 
 for _, event in ipairs({ "BAG_UPDATE_DELAYED", "PLAYER_EQUIPMENT_CHANGED", "PLAYER_LEVEL_UP",
 	"PLAYER_MONEY", "TRAIT_CONFIG_UPDATED", "PLAYER_TALENT_UPDATE", "QUEST_ACCEPTED", "QUEST_TURNED_IN",
-	"QUEST_REMOVED", "QUEST_LOG_UPDATE", "UPDATE_INVENTORY_DURABILITY", "SKILL_LINES_CHANGED" }) do
+	"QUEST_REMOVED", "QUEST_LOG_UPDATE", "UPDATE_INVENTORY_DURABILITY", "SKILL_LINES_CHANGED",
+	"ACTIONBAR_SLOT_CHANGED", "SPELLS_CHANGED", "LEARNED_SPELL_IN_SKILL_LINE" }) do
 	ns.On(event, AnnounceSoon)
 end
 
 local rosterTimer
 ns.On("GROUP_ROSTER_UPDATE", function()
+	-- Forget who spoke on the group channel: they say hello again if they're still here
+	wipe(ns.groupSeen)
+	ns.RefreshViewer()
 	if rosterTimer then return end
 	rosterTimer = C_Timer.NewTimer(3, function()
 		rosterTimer = nil

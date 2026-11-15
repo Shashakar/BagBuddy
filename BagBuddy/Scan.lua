@@ -145,6 +145,7 @@ function ns.ReadSelf()
 	end
 	Merge(snap)
 	ns.ReadQuests(snap)
+	snap.unplaced = ns.ReadUnplacedSpells()
 	return snap
 end
 
@@ -152,6 +153,7 @@ end
 -- Text
 -- 4^CLASS^level^tab^money^free^total^slot=item,slot=item^containers^race^quest log^finished quests
 --   ^slot=durability%,...^unspent talent points^profession=rank=max~...
+--   ^spell IDs not on an action bar ("-" when unknown)
 -- containers: bag/bagitem/slots/slot=item*count!+slot=item;bag/...
 -- Items drop their "item:" prefix; "*n" is a count above 1, "!" marks soulbound.
 ---------------------------------------------------------------------------
@@ -197,7 +199,8 @@ function ns.Encode(snap)
 	end
 	return table.concat({ "4", snap.class or "", snap.level or 0, snap.tab or 0, snap.money or 0,
 		snap.free or 0, snap.total or 0, table.concat(equip, ","), table.concat(containers, ";"),
-		snap.race or 0, log, completed, table.concat(dura, ","), snap.unspent or "", table.concat(skills, "~") }, "^")
+		snap.race or 0, log, completed, table.concat(dura, ","), snap.unspent or "", table.concat(skills, "~"),
+		snap.unplaced and table.concat(snap.unplaced, ",") or "-" }, "^")
 end
 
 function ns.Decode(text)
@@ -252,6 +255,10 @@ function ns.Decode(text)
 		for name, rank, max in parts[15]:gmatch("([^~=]+)=(%d+)=(%d+)") do
 			table.insert(snap.skills, { name, tonumber(rank), tonumber(max) })
 		end
+	end
+	if #parts >= 16 and parts[16] ~= "-" then
+		snap.unplaced = {}
+		for id in parts[16]:gmatch("%d+") do table.insert(snap.unplaced, tonumber(id)) end
 	end
 	return snap
 end
